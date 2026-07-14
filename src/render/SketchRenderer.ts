@@ -7,15 +7,18 @@ const STROKE_VERTEX = /* glsl */ `
   attribute float aT;
   attribute float aAlpha;
   attribute float aSide;
+  attribute vec3 aColor;
   varying float vT;
   varying float vAlpha;
   varying float vSide;
   varying vec2 vPos;
+  varying vec3 vColor;
   void main() {
     vT = aT;
     vAlpha = aAlpha;
     vSide = aSide;
     vPos = position.xy;
+    vColor = aColor;
     gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
   }
 `;
@@ -27,6 +30,7 @@ const STROKE_FRAGMENT = /* glsl */ `
   varying float vAlpha;
   varying float vSide;
   varying vec2 vPos;
+  varying vec3 vColor;
 
   float hash(vec2 p) {
     return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
@@ -42,8 +46,7 @@ const STROKE_FRAGMENT = /* glsl */ `
     // Freshly drawn bit is a touch darker, like graphite before it settles.
     float fresh = 1.0 + 0.25 * (1.0 - smoothstep(0.0, 0.035, uProgress - vT));
     float alpha = vAlpha * edge * grain * fresh;
-    vec3 graphite = vec3(0.16, 0.17, 0.20);
-    gl_FragColor = vec4(graphite, alpha);
+    gl_FragColor = vec4(vColor, alpha);
   }
 `;
 

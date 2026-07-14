@@ -19,7 +19,7 @@ Intended for the Folio storybook app: a genAI-generated illustration is presente
 
 ## Controls
 
-- **Style**: line art only, or full pencil shading (toggle)
+- **Style**: line art, graphite shading, or **colored pencil** — fills sample their hue from the picture (saturation-aware, so a bright yellow sun still gets colored), while outlines stay graphite
 - **Detail**: edge sensitivity
 - **Duration**: 3–45 s draw time, plus play/pause, redraw, and a progress scrubber
 - **Show pencil**: toggle the animated pencil cursor
@@ -46,7 +46,7 @@ Pushes to `main` build and deploy to GitHub Pages via `.github/workflows/deploy.
 import { createSketchPlayer } from './api';
 
 const player = createSketchPlayer(containerDiv, {
-  style: 'shaded',
+  style: 'shaded', // or 'lineart' / 'colored'
   durationSec: 15,
   pencil: true, // animated pencil cursor riding the ink front
   sound: true, // procedural pencil-scratch audio

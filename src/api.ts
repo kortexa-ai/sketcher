@@ -1,6 +1,6 @@
-import type { GrayImage, SketchStyle } from './types';
+import type { ColorImage, GrayImage, SketchStyle } from './types';
 import { buildSketchPlan } from './pipeline/plan';
-import { loadImageFromBlob, loadImageFromUrl, toGrayImage } from './pipeline/image';
+import { loadImageFromBlob, loadImageFromUrl, toImages } from './pipeline/image';
 import { SketchRenderer } from './render/SketchRenderer';
 import { PencilScratch } from './render/sound';
 
@@ -39,6 +39,7 @@ export class SketchPlayer {
   private renderer: SketchRenderer;
   private scratch = new PencilScratch();
   private gray: GrayImage | null = null;
+  private color: ColorImage | null = null;
   private currentStyle: SketchStyle;
   private currentDetail: number;
   private maxSide: number;
@@ -81,7 +82,9 @@ export class SketchPlayer {
           : source;
     if (overrides.maxSide !== undefined) this.maxSide = overrides.maxSide;
     const { width, height } = sourceSize(el);
-    this.gray = toGrayImage(el, width, height, this.maxSide);
+    const { gray, color } = toImages(el, width, height, this.maxSide);
+    this.gray = gray;
+    this.color = color;
     await this.replan(overrides);
   }
 
@@ -98,10 +101,11 @@ export class SketchPlayer {
     // Yield a beat so hosts can paint a "sketching…" state before the
     // CPU-heavy pipeline blocks the main thread.
     await new Promise((resolve) => setTimeout(resolve, 30));
-    const plan = buildSketchPlan(this.gray!, {
-      style: this.currentStyle,
-      detail: this.currentDetail,
-    });
+    const plan = buildSketchPlan(
+      this.gray!,
+      { style: this.currentStyle, detail: this.currentDetail },
+      this.color ?? undefined,
+    );
     this.completeFired = false;
     this.renderer.setPlan(plan); // starts drawing from t=0
   }
@@ -172,6 +176,7 @@ export class SketchPlayer {
     this.renderer.dispose();
     this.scratch.dispose();
     this.gray = null;
+    this.color = null;
   }
 }
 

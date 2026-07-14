@@ -4,6 +4,8 @@ import { blur, detectEdges } from '../edges';
 import { simplify, smoothResample, traceEdges } from '../trace';
 import { generateHatching } from '../hatch';
 import { normalizeTone } from '../tone';
+import { coverageTone, splitByColor, strokeColor } from '../color';
+import type { ColorImage } from '../../types';
 import { buildSketchPlan, schedule, strokeEffort } from '../plan';
 import { buildStrokeGeometry } from '../../render/strokeGeometry';
 import { pencilTipAt } from '../../render/tip';
@@ -295,6 +297,95 @@ describe('pencilTipAt', () => {
     const pn = last.points[last.points.length - 1];
     expect(Math.hypot(tip.x - pn.x, tip.y - pn.y)).toBeLessThan(1.5);
     expect(pencilTipAt({ width: 10, height: 10, strokes: [] }, 0.5)).toBeNull();
+  });
+});
+
+describe('colored pencil pipeline', () => {
+  /** White image with a solid-color centered square. */
+  const colorSquare = (size: number, rgb: [number, number, number]) => {
+    const data = new Float32Array(size * size * 3).fill(1);
+    const a = Math.floor(size / 4);
+    const b = Math.floor((3 * size) / 4);
+    for (let y = a; y < b; y++) {
+      for (let x = a; x < b; x++) {
+        const i = (y * size + x) * 3;
+        data[i] = rgb[0];
+        data[i + 1] = rgb[1];
+        data[i + 2] = rgb[2];
+      }
+    }
+    const color: ColorImage = { width: size, height: size, data };
+    const gray = new Float32Array(size * size);
+    for (let i = 0; i < gray.length; i++) {
+      gray[i] = 0.2126 * data[i * 3] + 0.7152 * data[i * 3 + 1] + 0.0722 * data[i * 3 + 2];
+    }
+    return { color, gray: { width: size, height: size, data: gray } };
+  };
+
+  it('covers vivid-but-light regions that luminance alone would skip', () => {
+    // Pure yellow: luminance ≈ 0.93 — graphite shading would leave it blank.
+    const { color, gray } = colorSquare(96, [1, 1, 0]);
+    const tone = coverageTone(gray, color);
+    const center = tone.data[48 * 96 + 48];
+    expect(center).toBeLessThan(0.3); // reads as "dark" → gets hatched
+    const corner = tone.data[3 * 96 + 3];
+    expect(corner).toBeGreaterThan(0.9); // white paper stays uncovered
+  });
+
+  it('samples stroke color from the image, keeping the hue', () => {
+    const { color } = colorSquare(96, [0.8, 0.2, 0.2]);
+    const pts = [];
+    for (let x = 30; x < 66; x += 3) pts.push({ x, y: 48 });
+    const [r, g, b] = strokeColor(pts, color);
+    expect(r).toBeGreaterThan(g);
+    expect(r).toBeGreaterThan(b);
+    expect(r).toBeGreaterThan(0.5);
+  });
+
+  it('colored plans tint hatches but keep graphite contours', () => {
+    const { color, gray } = colorSquare(96, [0.9, 0.85, 0.1]);
+    const plan = buildSketchPlan(gray, { style: 'colored' }, color);
+    const contours = plan.strokes.filter((s) => s.kind === 'contour');
+    const fills = plan.strokes.filter((s) => s.kind !== 'contour');
+    expect(contours.length).toBeGreaterThan(0);
+    expect(fills.length).toBeGreaterThan(10);
+    expect(contours.every((s) => s.color === undefined)).toBe(true);
+    expect(fills.every((s) => s.color !== undefined)).toBe(true);
+    // The fill tint should be recognizably yellow.
+    const [r, g, b] = fills[0].color!;
+    expect(r).toBeGreaterThan(b);
+    expect(g).toBeGreaterThan(b);
+  });
+
+  it('splits hatch lines at color boundaries so details keep their hue', () => {
+    // Left half red, right half blue; a horizontal line crossing the middle
+    // must yield separate red and blue runs, not one purple average.
+    const size = 64;
+    const data = new Float32Array(size * size * 3);
+    for (let y = 0; y < size; y++) {
+      for (let x = 0; x < size; x++) {
+        const i = (y * size + x) * 3;
+        data[i] = x < 32 ? 0.85 : 0.1;
+        data[i + 1] = 0.15;
+        data[i + 2] = x < 32 ? 0.1 : 0.85;
+      }
+    }
+    const color: ColorImage = { width: size, height: size, data };
+    const pts = [];
+    for (let x = 4; x < 60; x += 1.5) pts.push({ x, y: 32 });
+    const runs = splitByColor(pts, color);
+    expect(runs.length).toBe(2);
+    const [rL] = strokeColor(runs[0], color);
+    const [rR, , bR] = strokeColor(runs[1], color);
+    expect(rL).toBeGreaterThan(0.5);
+    expect(bR).toBeGreaterThan(rR);
+  });
+
+  it('falls back to graphite shading when no color image is given', () => {
+    const plan = buildSketchPlan(squareImage(96, 0.05), { style: 'colored' });
+    const fills = plan.strokes.filter((s) => s.kind !== 'contour');
+    expect(fills.length).toBeGreaterThan(0);
+    expect(fills.every((s) => s.color === undefined)).toBe(true);
   });
 });
 

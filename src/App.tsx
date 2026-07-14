@@ -160,6 +160,12 @@ export function App() {
             >
               Pencil shading
             </button>
+            <button
+              className={style === 'colored' ? 'active' : ''}
+              onClick={() => restyle('colored', detail)}
+            >
+              Colored
+            </button>
           </div>
           <label>
             Detail

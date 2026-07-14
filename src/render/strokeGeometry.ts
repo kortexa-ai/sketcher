@@ -26,6 +26,7 @@ export function buildStrokeGeometry(plan: SketchPlan): THREE.BufferGeometry {
   const aT = new Float32Array(vertexCount);
   const aAlpha = new Float32Array(vertexCount);
   const aSide = new Float32Array(vertexCount);
+  const aColor = new Float32Array(vertexCount * 3);
   const indices = vertexCount > 65535 ? new Uint32Array(indexCount) : new Uint16Array(indexCount);
 
   let v = 0;
@@ -47,6 +48,7 @@ export function buildStrokeGeometry(plan: SketchPlan): THREE.BufferGeometry {
     const baseWidth = strokeWidth(stroke);
     const { phase: wobblePhase, freq: wobbleFreq, amp: wobbleAmp } = strokeWobble(rand);
     const alphaJitterPhase = rand() * Math.PI * 2;
+    const [cr, cg, cb] = stroke.color ?? GRAPHITE;
 
     for (let i = 0; i < n; i++) {
       const p = pts[i];
@@ -84,6 +86,9 @@ export function buildStrokeGeometry(plan: SketchPlan): THREE.BufferGeometry {
         aT[v] = t;
         aAlpha[v] = alpha;
         aSide[v] = side;
+        aColor[v * 3] = cr;
+        aColor[v * 3 + 1] = cg;
+        aColor[v * 3 + 2] = cb;
         v++;
       }
     }
@@ -104,9 +109,13 @@ export function buildStrokeGeometry(plan: SketchPlan): THREE.BufferGeometry {
   geo.setAttribute('aT', new THREE.BufferAttribute(aT, 1));
   geo.setAttribute('aAlpha', new THREE.BufferAttribute(aAlpha, 1));
   geo.setAttribute('aSide', new THREE.BufferAttribute(aSide, 1));
+  geo.setAttribute('aColor', new THREE.BufferAttribute(aColor, 3));
   geo.setIndex(new THREE.BufferAttribute(indices, 1));
   return geo;
 }
+
+/** Default stroke tint when a stroke carries no color. */
+export const GRAPHITE: [number, number, number] = [0.16, 0.17, 0.2];
 
 /** Seed for stroke #i's deterministic randomness (shared with pencilTipAt). */
 export function strokeRand(strokeIndex: number): () => number {

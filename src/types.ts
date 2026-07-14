@@ -11,6 +11,13 @@ export interface GrayImage {
   data: Float32Array;
 }
 
+/** RGB image, values 0..1, row-major interleaved (r,g,b per pixel). */
+export interface ColorImage {
+  width: number;
+  height: number;
+  data: Float32Array;
+}
+
 export type StrokeKind = 'contour' | 'hatch' | 'crosshatch';
 
 /** A single pencil stroke: an ordered polyline plus rendering hints. */
@@ -19,6 +26,8 @@ export interface Stroke {
   kind: StrokeKind;
   /** 0..1 — how hard the pencil presses (darkness/width). */
   pressure: number;
+  /** Colored-pencil tint (r,g,b 0..1); graphite when absent. */
+  color?: [number, number, number];
 }
 
 /** A stroke scheduled on the global animation timeline. */
@@ -35,7 +44,7 @@ export interface SketchPlan {
   strokes: TimedStroke[];
 }
 
-export type SketchStyle = 'lineart' | 'shaded';
+export type SketchStyle = 'lineart' | 'shaded' | 'colored';
 
 export interface PipelineOptions {
   style: SketchStyle;

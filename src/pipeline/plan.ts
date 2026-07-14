@@ -1,9 +1,28 @@
-import type { GrayImage, PipelineOptions, Pt, SketchPlan, Stroke, TimedStroke } from '../types';
+import type {
+  ColorImage,
+  GrayImage,
+  PipelineOptions,
+  Pt,
+  SketchPlan,
+  Stroke,
+  TimedStroke,
+} from '../types';
 import { detectEdges } from './edges';
 import { arcLength, simplify, smoothResample, traceEdges } from './trace';
-import { generateHatching } from './hatch';
+import { generateHatching, type HatchPass } from './hatch';
 import { buildSaliency, strokeSaliency } from './saliency';
 import { normalizeTone } from './tone';
+import { coverageTone, splitByColor, strokeColor } from './color';
+
+/**
+ * Colored-pencil fill passes: denser than graphite shading, thresholds set
+ * against the saturation-aware coverage tone so vivid-but-light regions
+ * still get colored in.
+ */
+export const COLOR_PASSES: HatchPass[] = [
+  { threshold: 0.82, angle: (-35 * Math.PI) / 180, spacing: 4.2, pressure: 0.5, kind: 'hatch' },
+  { threshold: 0.45, angle: (52 * Math.PI) / 180, spacing: 3.4, pressure: 0.62, kind: 'crosshatch' },
+];
 
 /**
  * Full sketch pipeline (DOM-free): grayscale image → timed stroke plan.
@@ -14,7 +33,11 @@ import { normalizeTone } from './tone';
  * shaded first within each pass. Time is spent like a person spends it too:
  * long confident lines are drawn fast, short fiddly ones slowly (strokeEffort).
  */
-export function buildSketchPlan(rawGray: GrayImage, options: PipelineOptions): SketchPlan {
+export function buildSketchPlan(
+  rawGray: GrayImage,
+  options: PipelineOptions,
+  color?: ColorImage,
+): SketchPlan {
   const detail = options.detail ?? 0.5;
   const gray = normalizeTone(rawGray);
 
@@ -36,12 +59,26 @@ export function buildSketchPlan(rawGray: GrayImage, options: PipelineOptions): S
     .sort((a, b) => b.score - a.score)
     .map((o) => o.s);
 
+  // 'colored' without a color image degrades gracefully to graphite shading.
+  const colored = options.style === 'colored' && !!color;
   let hatches: Stroke[] = [];
-  if (options.style === 'shaded') {
-    hatches = generateHatching(gray).map((s) => ({
-      ...s,
-      points: smoothResample(s.points, 3),
-    }));
+  if (options.style === 'shaded' || options.style === 'colored') {
+    if (colored) {
+      // Split each hatch line at color boundaries so small colorful details
+      // (a blue door on a red house) keep their own hue.
+      hatches = generateHatching(coverageTone(gray, color!), COLOR_PASSES).flatMap((s) =>
+        splitByColor(s.points, color!).map((run) => ({
+          ...s,
+          points: smoothResample(run, 3),
+          color: strokeColor(run, color!),
+        })),
+      );
+    } else {
+      hatches = generateHatching(gray).map((s) => ({
+        ...s,
+        points: smoothResample(s.points, 3),
+      }));
+    }
     // Keep the tonal passes (light wash → dark cross-hatch) in order, but
     // shade the subject before the backdrop within each pass.
     const passIndex = new Map<number, number>();
