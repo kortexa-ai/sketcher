@@ -3,7 +3,7 @@ import type { GrayImage } from '../../types';
 import { blur, detectEdges } from '../edges';
 import { simplify, smoothResample, traceEdges } from '../trace';
 import { generateHatching } from '../hatch';
-import { buildSketchPlan, schedule } from '../plan';
+import { buildSketchPlan, schedule, strokeEffort } from '../plan';
 import { buildStrokeGeometry } from '../../render/strokeGeometry';
 
 /** White image with a centered dark square — crisp edges, dark region. */
@@ -132,6 +132,62 @@ describe('schedule', () => {
     expect(timed[1].t1).toBeCloseTo(0.5, 6);
     // Longer stroke gets more time.
     expect(timed[0].t1 - timed[0].t0).toBeGreaterThan(timed[1].t1 - timed[1].t0);
+  });
+});
+
+describe('strokeEffort / variable drawing speed', () => {
+  const straightLine = (len: number, spacing = 3) => {
+    const points = [];
+    for (let x = 0; x <= len; x += spacing) points.push({ x, y: 0 });
+    return { points, kind: 'contour' as const, pressure: 1 };
+  };
+
+  it('gives a wiggly stroke more time than a straight one of equal length', () => {
+    const straight = straightLine(96);
+    // Zigzag with the same total arc length but constant sharp turning.
+    const zig = { points: [] as { x: number; y: number }[], kind: 'contour' as const, pressure: 1 };
+    let x = 0;
+    for (let i = 0; i <= 32; i++) {
+      zig.points.push({ x, y: i % 2 === 0 ? 0 : 2.4 });
+      x += 1.8; // segment length = hypot(1.8, 2.4) = 3, total = 96
+    }
+    const timed = schedule([straight, zig], 0, 1);
+    const dStraight = timed[0].t1 - timed[0].t0;
+    const dZig = timed[1].t1 - timed[1].t0;
+    expect(dZig).toBeGreaterThan(dStraight * 1.3);
+  });
+
+  it('draws long lines faster per pixel than short ones', () => {
+    // Twice the length must take clearly less than twice the time.
+    expect(strokeEffort(straightLine(200))).toBeLessThan(1.8 * strokeEffort(straightLine(100)));
+    // ...but still take longer in absolute terms.
+    expect(strokeEffort(straightLine(200))).toBeGreaterThan(strokeEffort(straightLine(100)));
+  });
+});
+
+describe('semantic stroke ordering', () => {
+  it('draws a centered subject before a longer background line at the edge', () => {
+    // White 128×128 image: detailed dark square in the middle (the subject),
+    // long dark stripe along the bottom edge (the background).
+    const size = 128;
+    const data = new Float32Array(size * size).fill(1);
+    for (let y = 52; y < 76; y++) {
+      for (let x = 52; x < 76; x++) data[y * size + x] = 0.1;
+    }
+    for (let y = 118; y < size; y++) {
+      for (let x = 0; x < size; x++) data[y * size + x] = 0.1;
+    }
+    const plan = buildSketchPlan({ width: size, height: size, data }, { style: 'lineart' });
+
+    const meanY = (points: { y: number }[]) =>
+      points.reduce((a, p) => a + p.y, 0) / points.length;
+    const subject = plan.strokes.filter((s) => meanY(s.points) < 95);
+    const background = plan.strokes.filter((s) => meanY(s.points) >= 110);
+    expect(subject.length).toBeGreaterThan(0);
+    expect(background.length).toBeGreaterThan(0);
+    const lastSubjectStart = Math.max(...subject.map((s) => s.t0));
+    const firstBackgroundStart = Math.min(...background.map((s) => s.t0));
+    expect(lastSubjectStart).toBeLessThan(firstBackgroundStart);
   });
 });
 

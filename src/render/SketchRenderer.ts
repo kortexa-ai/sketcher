@@ -104,7 +104,7 @@ export class SketchRenderer {
   private raf = 0;
   private lastTime = 0;
   private playing = false;
-  private progress = 0;
+  private progressValue = 0;
   durationSec = 12;
   onProgress: ((p: number) => void) | null = null;
 
@@ -169,7 +169,7 @@ export class SketchRenderer {
   }
 
   play(): void {
-    if (this.progress >= 1) this.progress = 0;
+    if (this.progressValue >= 1) this.progressValue = 0;
     this.playing = true;
     this.lastTime = 0;
   }
@@ -179,19 +179,24 @@ export class SketchRenderer {
   }
 
   restart(): void {
-    this.progress = 0;
+    this.progressValue = 0;
     this.playing = true;
     this.lastTime = 0;
   }
 
   seek(p: number): void {
-    this.progress = Math.min(1, Math.max(0, p));
+    this.progressValue = Math.min(1, Math.max(0, p));
     this.playing = false;
-    this.onProgress?.(this.progress);
+    this.onProgress?.(this.progressValue);
   }
 
   get isPlaying(): boolean {
     return this.playing;
+  }
+
+  /** Current timeline position, 0..1. */
+  get progress(): number {
+    return this.progressValue;
   }
 
   private loop(time: number): void {
@@ -200,13 +205,13 @@ export class SketchRenderer {
       if (this.lastTime === 0) this.lastTime = time;
       const dt = (time - this.lastTime) / 1000;
       this.lastTime = time;
-      this.progress = Math.min(1, this.progress + dt / this.durationSec);
-      if (this.progress >= 1) this.playing = false;
-      this.onProgress?.(this.progress);
+      this.progressValue = Math.min(1, this.progressValue + dt / this.durationSec);
+      if (this.progressValue >= 1) this.playing = false;
+      this.onProgress?.(this.progressValue);
     } else {
       this.lastTime = 0;
     }
-    this.strokeMaterial.uniforms.uProgress.value = this.progress;
+    this.strokeMaterial.uniforms.uProgress.value = this.progressValue;
     this.renderer.render(this.scene, this.camera);
   }
 

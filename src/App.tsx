@@ -1,8 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { GrayImage, SketchStyle } from './types';
-import { buildSketchPlan } from './pipeline/plan';
-import { loadImageFromBlob, loadImageFromUrl, toGrayImage } from './pipeline/image';
-import { SketchRenderer } from './render/SketchRenderer';
+import type { SketchStyle } from './types';
+import { createSketchPlayer, SketchPlayer, type SketchSource } from './api';
 import { CameraCapture } from './ui/CameraCapture';
 
 const SAMPLES = [
@@ -13,8 +11,7 @@ const SAMPLES = [
 
 export function App() {
   const viewportRef = useRef<HTMLDivElement>(null);
-  const rendererRef = useRef<SketchRenderer | null>(null);
-  const grayRef = useRef<GrayImage | null>(null);
+  const playerRef = useRef<SketchPlayer | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [style, setStyle] = useState<SketchStyle>('shaded');
@@ -28,71 +25,56 @@ export function App() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const container = viewportRef.current!;
-    const renderer = new SketchRenderer(container);
-    renderer.onProgress = (p) => {
-      setProgress(p);
-      setPlaying(renderer.isPlaying);
-    };
-    rendererRef.current = renderer;
+    const player = createSketchPlayer(viewportRef.current!, {
+      onProgress: (p) => {
+        setProgress(p);
+        setPlaying(player.playing);
+      },
+    });
+    playerRef.current = player;
     return () => {
-      renderer.dispose();
-      rendererRef.current = null;
+      player.dispose();
+      playerRef.current = null;
     };
   }, []);
 
   useEffect(() => {
-    const r = rendererRef.current;
-    if (r) r.durationSec = duration;
+    const player = playerRef.current;
+    if (player) player.durationSec = duration;
   }, [duration]);
 
-  const sketch = useCallback((gray: GrayImage, sketchStyle: SketchStyle, edgeDetail: number) => {
+  // Run a player task with busy/error bookkeeping around it.
+  const run = useCallback(async (task: (player: SketchPlayer) => Promise<void>) => {
+    const player = playerRef.current;
+    if (!player) return;
     setBusy(true);
     setError(null);
-    // Let the busy state paint before the (CPU-heavy) pipeline runs.
-    setTimeout(() => {
-      try {
-        const plan = buildSketchPlan(gray, { style: sketchStyle, detail: edgeDetail });
-        rendererRef.current?.setPlan(plan);
-        setHasImage(true);
-        setPlaying(true);
-      } catch (e) {
-        setError(e instanceof Error ? e.message : 'Sketching failed');
-      } finally {
-        setBusy(false);
-      }
-    }, 30);
+    try {
+      await task(player);
+      setHasImage(player.hasImage);
+      setPlaying(player.playing);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Sketching failed');
+    } finally {
+      setBusy(false);
+    }
   }, []);
 
-  const acceptSource = useCallback(
-    (source: CanvasImageSource, w: number, h: number) => {
-      const gray = toGrayImage(source, w, h);
-      grayRef.current = gray;
-      sketch(gray, style, detail);
-    },
-    [sketch, style, detail],
+  const draw = useCallback(
+    (source: SketchSource) => run((player) => player.draw(source, { style, detail })),
+    [run, style, detail],
   );
 
-  const acceptBlob = useCallback(
-    async (blob: Blob) => {
-      try {
-        const img = await loadImageFromBlob(blob);
-        acceptSource(img, img.naturalWidth, img.naturalHeight);
-      } catch (e) {
-        setError(e instanceof Error ? e.message : 'Could not read image');
-      }
-    },
-    [acceptSource],
-  );
-
-  // Re-run the pipeline when style/detail change and an image is loaded.
+  // Re-run the pipeline on the cached image when style/detail change.
   const restyle = useCallback(
     (nextStyle: SketchStyle, nextDetail: number) => {
       setStyle(nextStyle);
       setDetail(nextDetail);
-      if (grayRef.current) sketch(grayRef.current, nextStyle, nextDetail);
+      if (playerRef.current?.hasImage) {
+        void run((player) => player.restyle({ style: nextStyle, detail: nextDetail }));
+      }
     },
-    [sketch],
+    [run],
   );
 
   // Paste and drag-drop anywhere on the page.
@@ -104,7 +86,7 @@ export function App() {
       const file = item?.getAsFile();
       if (file) {
         e.preventDefault();
-        void acceptBlob(file);
+        void draw(file);
       }
     };
     const onDrop = (e: DragEvent) => {
@@ -112,7 +94,7 @@ export function App() {
       const file = Array.from(e.dataTransfer?.files ?? []).find((f) =>
         f.type.startsWith('image/'),
       );
-      if (file) void acceptBlob(file);
+      if (file) void draw(file);
     };
     const onDragOver = (e: DragEvent) => e.preventDefault();
     window.addEventListener('paste', onPaste);
@@ -123,19 +105,9 @@ export function App() {
       window.removeEventListener('drop', onDrop);
       window.removeEventListener('dragover', onDragOver);
     };
-  }, [acceptBlob]);
+  }, [draw]);
 
-  const loadSample = async (url: string) => {
-    try {
-      setError(null);
-      const img = await loadImageFromUrl(url);
-      acceptSource(img, img.naturalWidth || 800, img.naturalHeight || 600);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not load sample');
-    }
-  };
-
-  const renderer = rendererRef.current;
+  const player = playerRef.current;
 
   return (
     <div className="app">
@@ -156,14 +128,14 @@ export function App() {
             hidden
             onChange={(e) => {
               const f = e.target.files?.[0];
-              if (f) void acceptBlob(f);
+              if (f) void draw(f);
               e.target.value = '';
             }}
           />
           <p className="hint">…or drag &amp; drop / paste (Ctrl+V) an image anywhere.</p>
           <div className="samples">
             {SAMPLES.map((s) => (
-              <button key={s.name} className="sample" onClick={() => void loadSample(s.url)}>
+              <button key={s.name} className="sample" onClick={() => void draw(s.url)}>
                 <img src={s.url} alt={s.name} />
                 <span>{s.name}</span>
               </button>
@@ -217,15 +189,15 @@ export function App() {
             <button
               disabled={!hasImage}
               onClick={() => {
-                if (!renderer) return;
-                if (renderer.isPlaying) renderer.pause();
-                else renderer.play();
-                setPlaying(renderer.isPlaying);
+                if (!player) return;
+                if (player.playing) player.pause();
+                else player.play();
+                setPlaying(player.playing);
               }}
             >
               {playing ? 'Pause' : 'Play'}
             </button>
-            <button disabled={!hasImage} onClick={() => renderer?.restart()}>
+            <button disabled={!hasImage} onClick={() => player?.restart()}>
               Redraw
             </button>
           </div>
@@ -239,7 +211,7 @@ export function App() {
               value={progress}
               disabled={!hasImage}
               onChange={(e) => {
-                renderer?.seek(Number(e.target.value));
+                player?.seek(Number(e.target.value));
                 setPlaying(false);
               }}
             />
@@ -270,7 +242,7 @@ export function App() {
           onClose={() => setCameraOpen(false)}
           onCapture={(canvas) => {
             setCameraOpen(false);
-            acceptSource(canvas, canvas.width, canvas.height);
+            void draw(canvas);
           }}
         />
       )}

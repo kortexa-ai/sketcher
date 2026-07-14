@@ -1,34 +1,38 @@
-import type { GrayImage, PipelineOptions, SketchPlan, Stroke, TimedStroke } from '../types';
+import type { GrayImage, PipelineOptions, Pt, SketchPlan, Stroke, TimedStroke } from '../types';
 import { detectEdges } from './edges';
 import { arcLength, simplify, smoothResample, traceEdges } from './trace';
 import { generateHatching } from './hatch';
+import { buildSaliency, strokeSaliency } from './saliency';
 
 /**
  * Full sketch pipeline (DOM-free): grayscale image → timed stroke plan.
  *
- * Contours are drawn first — longest, most structural lines leading — then
- * hatching passes build up tone from light to dark, which is roughly how a
- * person shades a pencil drawing.
+ * Draw order aims to feel human: the subject (where edge detail concentrates,
+ * biased toward the image center) is outlined before the background, longest
+ * structural lines leading, then hatching builds tone light to dark — subject
+ * shaded first within each pass. Time is spent like a person spends it too:
+ * long confident lines are drawn fast, short fiddly ones slowly (strokeEffort).
  */
 export function buildSketchPlan(gray: GrayImage, options: PipelineOptions): SketchPlan {
   const detail = options.detail ?? 0.5;
 
   const edges = detectEdges(gray, detail);
+  const saliency = buildSaliency(edges);
   const chains = traceEdges(edges);
   const contours: Stroke[] = chains.map((chain) => ({
     points: smoothResample(simplify(chain, 1.3), 3),
     kind: 'contour',
     pressure: 0.85,
   }));
-  // Structural lines first: sort by length, longest leading. A light spatial
-  // bias (top-left earlier) breaks ties so the order feels intentional.
-  const withLen = contours.map((s) => ({ s, len: arcLength(s.points) }));
-  withLen.sort((a, b) => {
-    const scoreA = a.len - 0.15 * (a.s.points[0].x + a.s.points[0].y);
-    const scoreB = b.len - 0.15 * (b.s.points[0].x + b.s.points[0].y);
-    return scoreB - scoreA;
-  });
-  const orderedContours = withLen.map((w) => w.s);
+
+  // Subject before background, structure before detail: a stroke's slot mixes
+  // where it lives (saliency) with how structural it is (length).
+  const lens = contours.map((s) => arcLength(s.points));
+  const longest = lens.reduce((a, b) => Math.max(a, b), 1);
+  const orderedContours = contours
+    .map((s, i) => ({ s, score: 3 * strokeSaliency(s.points, saliency) + lens[i] / longest }))
+    .sort((a, b) => b.score - a.score)
+    .map((o) => o.s);
 
   let hatches: Stroke[] = [];
   if (options.style === 'shaded') {
@@ -36,12 +40,30 @@ export function buildSketchPlan(gray: GrayImage, options: PipelineOptions): Sket
       ...s,
       points: smoothResample(s.points, 3),
     }));
+    // Keep the tonal passes (light wash → dark cross-hatch) in order, but
+    // shade the subject before the backdrop within each pass.
+    const passIndex = new Map<number, number>();
+    for (const s of hatches) {
+      if (!passIndex.has(s.pressure)) passIndex.set(s.pressure, passIndex.size);
+    }
+    const sal = new Map<Stroke, number>();
+    for (const s of hatches) sal.set(s, strokeSaliency(s.points, saliency));
+    hatches.sort(
+      (a, b) =>
+        passIndex.get(a.pressure)! - passIndex.get(b.pressure)! || sal.get(b)! - sal.get(a)!,
+    );
   }
 
-  // Split the timeline: contours get the first chunk, shading the rest.
-  // Each stroke's duration is proportional to its length, with a small
-  // constant per-stroke cost (pencil travel between strokes).
-  const contourShare = options.style === 'shaded' ? 0.45 : 1;
+  // Split the timeline by how much work each phase actually is, so heavy
+  // shading doesn't rush the line work. Lineart uses the whole timeline.
+  let contourShare = 1;
+  if (hatches.length > 0) {
+    const contourEffort = orderedContours.reduce((a, s) => a + strokeEffort(s), 0);
+    const hatchEffort = hatches.reduce((a, s) => a + strokeEffort(s), 0);
+    const raw = contourEffort / (contourEffort + hatchEffort || 1);
+    contourShare = Math.min(0.65, Math.max(0.35, raw));
+  }
+
   const strokes: TimedStroke[] = [
     ...schedule(orderedContours, 0, contourShare),
     ...schedule(hatches, contourShare, 1),
@@ -49,11 +71,10 @@ export function buildSketchPlan(gray: GrayImage, options: PipelineOptions): Sket
   return { width: gray.width, height: gray.height, strokes };
 }
 
-/** Lay strokes head-to-tail across [tStart, tEnd] proportionally to length. */
+/** Lay strokes head-to-tail across [tStart, tEnd] proportionally to effort. */
 export function schedule(strokes: Stroke[], tStart: number, tEnd: number): TimedStroke[] {
   if (strokes.length === 0 || tEnd <= tStart) return [];
-  const perStrokeCost = 14; // constant px-equivalent cost per stroke
-  const weights = strokes.map((s) => arcLength(s.points) + perStrokeCost);
+  const weights = strokes.map(strokeEffort);
   const total = weights.reduce((a, b) => a + b, 0);
   const span = tEnd - tStart;
   let t = tStart;
@@ -63,4 +84,31 @@ export function schedule(strokes: Stroke[], tStart: number, tEnd: number): Timed
     t += dt;
     return timed;
   });
+}
+
+/**
+ * Time cost of drawing one stroke, in arbitrary units. Sublinear in length —
+ * a long confident line moves fast, while short detail strokes get
+ * proportionally more time — increased by curvature (wiggly = careful =
+ * slow), plus a fixed cost for travelling the pencil to the stroke start.
+ */
+export function strokeEffort(s: Stroke): number {
+  const len = arcLength(s.points);
+  const turnPerPx = totalTurning(s.points) / Math.max(len, 1);
+  const care = 1 + 0.6 * Math.min(2, turnPerPx * 25);
+  return 12 + Math.pow(len, 0.72) * care;
+}
+
+/** Sum of absolute direction changes along a polyline, radians. */
+function totalTurning(points: Pt[]): number {
+  let turn = 0;
+  for (let i = 2; i < points.length; i++) {
+    const a1 = Math.atan2(points[i - 1].y - points[i - 2].y, points[i - 1].x - points[i - 2].x);
+    const a2 = Math.atan2(points[i].y - points[i - 1].y, points[i].x - points[i - 1].x);
+    let d = a2 - a1;
+    while (d > Math.PI) d -= 2 * Math.PI;
+    while (d < -Math.PI) d += 2 * Math.PI;
+    turn += Math.abs(d);
+  }
+  return turn;
 }
