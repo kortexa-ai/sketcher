@@ -1,0 +1,236 @@
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  background: #23211e;
+  color: #e8e4dc;
+}
+
+.app {
+  display: flex;
+  height: 100%;
+}
+
+.panel {
+  width: 280px;
+  flex-shrink: 0;
+  padding: 20px;
+  overflow-y: auto;
+  background: #2c2925;
+  border-right: 1px solid #3a362f;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.panel h1 {
+  margin: 0;
+  font-size: 26px;
+  letter-spacing: 0.5px;
+}
+
+.tagline {
+  margin: 0;
+  color: #a89f8f;
+  font-size: 13px;
+}
+
+.panel section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.panel h2 {
+  margin: 0;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 1.2px;
+  color: #8d8577;
+}
+
+.button-row {
+  display: flex;
+  gap: 8px;
+}
+
+.panel button {
+  flex: 1;
+  padding: 8px 10px;
+  border: 1px solid #4a453c;
+  border-radius: 8px;
+  background: #383327;
+  color: #e8e4dc;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.panel button:hover:not(:disabled) {
+  background: #4a4433;
+}
+
+.panel button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.toggle button.active {
+  background: #6b5d3f;
+  border-color: #93825d;
+}
+
+.hint {
+  margin: 0;
+  font-size: 12px;
+  color: #8d8577;
+}
+
+.samples {
+  display: flex;
+  gap: 8px;
+}
+
+.sample {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: center;
+  padding: 6px !important;
+  font-size: 12px !important;
+}
+
+.sample img {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+  border-radius: 4px;
+  background: #fff;
+}
+
+label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  color: #c9c1b2;
+}
+
+input[type='range'] {
+  width: 100%;
+  accent-color: #b39a62;
+}
+
+.error {
+  color: #e08a8a;
+  font-size: 13px;
+}
+
+footer {
+  margin-top: auto;
+  font-size: 12px;
+}
+
+footer a {
+  color: #8d8577;
+}
+
+.viewport {
+  flex: 1;
+  position: relative;
+  min-width: 0;
+}
+
+.viewport canvas {
+  position: absolute;
+  inset: 0;
+}
+
+.placeholder {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.placeholder p {
+  font-size: 20px;
+  color: #a89f8f;
+  background: rgba(35, 33, 30, 0.75);
+  padding: 14px 22px;
+  border-radius: 12px;
+}
+
+.camera-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.92);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  z-index: 10;
+  gap: 18px;
+}
+
+.camera-overlay video {
+  max-width: 92vw;
+  max-height: 72vh;
+  border-radius: 10px;
+}
+
+.camera-buttons {
+  display: flex;
+  align-items: center;
+  gap: 22px;
+}
+
+.shutter {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  border: 4px solid #fff;
+  background: #d9d2c3;
+  cursor: pointer;
+}
+
+.camera-close {
+  padding: 10px 18px;
+  border-radius: 8px;
+  border: 1px solid #666;
+  background: transparent;
+  color: #ddd;
+  cursor: pointer;
+}
+
+.camera-error {
+  color: #e08a8a;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+@media (max-width: 700px) {
+  .app {
+    flex-direction: column;
+  }
+  .panel {
+    width: 100%;
+    max-height: 45%;
+    border-right: none;
+    border-bottom: 1px solid #3a362f;
+  }
+}
