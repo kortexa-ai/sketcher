@@ -23,6 +23,7 @@ Intended for the Folio storybook app: a genAI-generated illustration is presente
 - **Detail**: edge sensitivity
 - **Duration**: 3–45 s draw time, plus play/pause, redraw, and a progress scrubber
 - **Show pencil**: toggle the animated pencil cursor
+- **Pencil sound**: procedural pencil-scratch audio (WebAudio noise + bandpass, no assets) whose loudness and brightness follow the pencil's speed
 
 ## Develop
 
@@ -48,6 +49,7 @@ const player = createSketchPlayer(containerDiv, {
   style: 'shaded',
   durationSec: 15,
   pencil: true, // animated pencil cursor riding the ink front
+  sound: true, // procedural pencil-scratch audio
   onProgress: (p) => scrubber.update(p),
   onComplete: () => showNextPage(),
 });

@@ -3,9 +3,11 @@ import type { GrayImage } from '../../types';
 import { blur, detectEdges } from '../edges';
 import { simplify, smoothResample, traceEdges } from '../trace';
 import { generateHatching } from '../hatch';
+import { normalizeTone } from '../tone';
 import { buildSketchPlan, schedule, strokeEffort } from '../plan';
 import { buildStrokeGeometry } from '../../render/strokeGeometry';
 import { pencilTipAt } from '../../render/tip';
+import { PencilScratch, scratchGain } from '../../render/sound';
 
 /** White image with a centered dark square — crisp edges, dark region. */
 function squareImage(size = 64, lo = 0.1): GrayImage {
@@ -50,6 +52,49 @@ describe('detectEdges', () => {
     const img: GrayImage = { width: 16, height: 16, data: new Float32Array(256).fill(0.7) };
     const edges = detectEdges(img, 0.9);
     expect(edges.mask.every((v) => v === 0)).toBe(true);
+  });
+});
+
+describe('normalizeTone', () => {
+  it('stretches a low-contrast image to the full range', () => {
+    const data = new Float32Array(64 * 64);
+    for (let i = 0; i < data.length; i++) data[i] = 0.4 + 0.2 * (i / data.length);
+    const out = normalizeTone({ width: 64, height: 64, data });
+    let min = 1;
+    let max = 0;
+    for (const v of out.data) {
+      min = Math.min(min, v);
+      max = Math.max(max, v);
+    }
+    expect(min).toBeLessThan(0.05);
+    expect(max).toBeGreaterThan(0.95);
+  });
+
+  it('leaves an effectively flat image untouched', () => {
+    const img: GrayImage = { width: 16, height: 16, data: new Float32Array(256).fill(0.6) };
+    const out = normalizeTone(img);
+    for (const v of out.data) expect(v).toBeCloseTo(0.6, 5);
+  });
+});
+
+describe('detectEdges with outlier-strong edges', () => {
+  it('keeps a faint edge even when one much stronger edge is present', () => {
+    // Faint vertical step down the whole image, plus a tiny high-contrast
+    // blob whose gradient would dominate a max-based threshold.
+    const size = 64;
+    const data = new Float32Array(size * size);
+    for (let y = 0; y < size; y++) {
+      for (let x = 0; x < size; x++) data[y * size + x] = x < 32 ? 0.55 : 0.45;
+    }
+    for (let y = 2; y < 6; y++) {
+      for (let x = 2; x < 6; x++) data[y * size + x] = 1;
+    }
+    const edges = detectEdges({ width: size, height: size, data }, 0.5);
+    let faint = 0;
+    for (let y = 10; y < size - 2; y++) {
+      for (let x = 29; x <= 34; x++) faint += edges.mask[y * size + x];
+    }
+    expect(faint).toBeGreaterThan(20);
   });
 });
 
@@ -250,6 +295,26 @@ describe('pencilTipAt', () => {
     const pn = last.points[last.points.length - 1];
     expect(Math.hypot(tip.x - pn.x, tip.y - pn.y)).toBeLessThan(1.5);
     expect(pencilTipAt({ width: 10, height: 10, strokes: [] }, 0.5)).toBeNull();
+  });
+});
+
+describe('PencilScratch', () => {
+  it('maps speed to gain: silent when still, subtle and monotonic when moving', () => {
+    expect(scratchGain(0)).toBe(0);
+    expect(scratchGain(0.01)).toBe(0);
+    expect(scratchGain(0.5)).toBeGreaterThan(0);
+    expect(scratchGain(1)).toBeGreaterThan(scratchGain(0.5));
+    expect(scratchGain(1)).toBeLessThan(0.2); // texture, not a soundtrack
+    expect(scratchGain(2)).toBe(scratchGain(1)); // clamped
+  });
+
+  it('degrades to a no-op where WebAudio is unavailable', () => {
+    const scratch = new PencilScratch();
+    expect(() => {
+      scratch.update(0.7); // would lazily start audio in a browser
+      scratch.update(0);
+      scratch.dispose();
+    }).not.toThrow();
   });
 });
 

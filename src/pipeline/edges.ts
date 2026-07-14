@@ -103,12 +103,26 @@ export function detectEdges(gray: GrayImage, detail = 0.5): EdgeMap {
 
   // Hysteresis thresholding. Thresholds scale with detail and image statistics.
   let max = 0;
-  for (let i = 0; i < thin.length; i++) if (thin[i] > max) max = thin[i];
+  const nonzero: number[] = [];
+  for (let i = 0; i < thin.length; i++) {
+    if (thin[i] > 0) {
+      nonzero.push(thin[i]);
+      if (thin[i] > max) max = thin[i];
+    }
+  }
   if (max === 0) {
     return { width, height, mask: new Uint8Array(width * height), magnitude: mag };
   }
+  nonzero.sort((a, b) => a - b);
+  const p75 = nonzero[Math.floor(nonzero.length * 0.75)];
   const detailClamped = Math.min(1, Math.max(0, detail));
-  const high = max * (0.28 - 0.22 * detailClamped); // detail 0 → 0.28, detail 1 → 0.06
+  // Two candidate thresholds, take the gentler one: the max-based rule works
+  // when edges are uniform, but a single very strong edge (common in genAI
+  // renders) would push it past every faint-but-real edge — the percentile
+  // cap keeps those. detail 0 → strict, detail 1 → permissive.
+  const highFromMax = max * (0.28 - 0.22 * detailClamped);
+  const highFromBulk = p75 * (1.35 - 0.8 * detailClamped);
+  const high = Math.min(highFromMax, highFromBulk);
   const low = high * 0.4;
 
   const mask = new Uint8Array(width * height);

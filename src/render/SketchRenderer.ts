@@ -109,10 +109,16 @@ export class SketchRenderer {
   private progressValue = 0;
   private pencil: THREE.Group;
   private pencilPos: { x: number; y: number } | null = null;
+  private lastTip: { x: number; y: number } | null = null;
   durationSec = 12;
   /** Show the animated pencil riding the ink front. */
   showPencil = true;
   onProgress: ((p: number) => void) | null = null;
+  /**
+   * Fires every frame with the pencil's normalized drawing speed (0..1);
+   * 0 while paused, lifted between strokes, or finished. Drives audio.
+   */
+  onPencilMove: ((speed: number) => void) | null = null;
 
   constructor(private container: HTMLElement) {
     this.renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -233,13 +239,36 @@ export class SketchRenderer {
   /** Park the pencil sprite on the ink front, gliding + lifting between strokes. */
   private updatePencil(dt: number): void {
     const plan = this.plan;
-    if (!this.showPencil || !plan || this.progressValue >= 1) {
+    if (!plan || this.progressValue >= 1) {
       this.pencil.visible = false;
       if (this.progressValue >= 1) this.pencilPos = null;
+      this.lastTip = null;
+      this.onPencilMove?.(0);
       return;
     }
     const tip = pencilTipAt(plan, this.progressValue);
     if (!tip) {
+      this.pencil.visible = false;
+      this.lastTip = null;
+      this.onPencilMove?.(0);
+      return;
+    }
+
+    // Drawing speed from the raw ink-front motion (not the smoothed sprite).
+    // A big jump means the pencil hopped to a new stroke — lifted, silent.
+    if (this.onPencilMove) {
+      const size = Math.max(plan.width, plan.height);
+      let speed = 0;
+      if (this.playing && this.lastTip && dt > 0) {
+        const moved = Math.hypot(tip.x - this.lastTip.x, tip.y - this.lastTip.y);
+        const hop = moved > size * 0.05;
+        if (!hop) speed = Math.min(1, moved / dt / (size * 0.8));
+      }
+      this.onPencilMove(speed);
+    }
+    this.lastTip = { x: tip.x, y: tip.y };
+
+    if (!this.showPencil) {
       this.pencil.visible = false;
       return;
     }

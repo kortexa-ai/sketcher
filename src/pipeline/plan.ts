@@ -3,6 +3,7 @@ import { detectEdges } from './edges';
 import { arcLength, simplify, smoothResample, traceEdges } from './trace';
 import { generateHatching } from './hatch';
 import { buildSaliency, strokeSaliency } from './saliency';
+import { normalizeTone } from './tone';
 
 /**
  * Full sketch pipeline (DOM-free): grayscale image → timed stroke plan.
@@ -13,8 +14,9 @@ import { buildSaliency, strokeSaliency } from './saliency';
  * shaded first within each pass. Time is spent like a person spends it too:
  * long confident lines are drawn fast, short fiddly ones slowly (strokeEffort).
  */
-export function buildSketchPlan(gray: GrayImage, options: PipelineOptions): SketchPlan {
+export function buildSketchPlan(rawGray: GrayImage, options: PipelineOptions): SketchPlan {
   const detail = options.detail ?? 0.5;
+  const gray = normalizeTone(rawGray);
 
   const edges = detectEdges(gray, detail);
   const saliency = buildSaliency(edges);

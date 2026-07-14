@@ -2,6 +2,7 @@ import type { GrayImage, SketchStyle } from './types';
 import { buildSketchPlan } from './pipeline/plan';
 import { loadImageFromBlob, loadImageFromUrl, toGrayImage } from './pipeline/image';
 import { SketchRenderer } from './render/SketchRenderer';
+import { PencilScratch } from './render/sound';
 
 /** What a host app hands us: a decoded image/canvas/bitmap, a Blob, or a URL. */
 export type SketchSource = CanvasImageSource | Blob | string;
@@ -19,6 +20,8 @@ export interface SketchOptions {
 export interface SketchPlayerOptions extends SketchOptions {
   /** Show the animated pencil riding the ink front (default true). */
   pencil?: boolean;
+  /** Play procedural pencil-scratch audio while drawing (default true). */
+  sound?: boolean;
   onProgress?: (progress: number) => void;
   /** Fires once each time the drawing reaches the end. */
   onComplete?: () => void;
@@ -34,6 +37,7 @@ export interface SketchPlayerOptions extends SketchOptions {
  */
 export class SketchPlayer {
   private renderer: SketchRenderer;
+  private scratch = new PencilScratch();
   private gray: GrayImage | null = null;
   private currentStyle: SketchStyle;
   private currentDetail: number;
@@ -52,6 +56,8 @@ export class SketchPlayer {
     this.renderer = new SketchRenderer(container);
     this.renderer.durationSec = options.durationSec ?? 12;
     this.renderer.showPencil = options.pencil ?? true;
+    this.scratch.enabled = options.sound ?? true;
+    this.renderer.onPencilMove = (speed) => this.scratch.update(speed);
     this.renderer.onProgress = (p) => {
       this.onProgress?.(p);
       if (p >= 1) {
@@ -154,8 +160,17 @@ export class SketchPlayer {
     this.renderer.showPencil = show;
   }
 
+  get sound(): boolean {
+    return this.scratch.enabled;
+  }
+
+  set sound(on: boolean) {
+    this.scratch.enabled = on;
+  }
+
   dispose(): void {
     this.renderer.dispose();
+    this.scratch.dispose();
     this.gray = null;
   }
 }

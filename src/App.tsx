@@ -21,6 +21,7 @@ export function App() {
   const [playing, setPlaying] = useState(false);
   const [busy, setBusy] = useState(false);
   const [pencil, setPencil] = useState(true);
+  const [sound, setSound] = useState(true);
   const [hasImage, setHasImage] = useState(false);
   const [cameraOpen, setCameraOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -196,6 +197,17 @@ export function App() {
               }}
             />
             Show pencil
+          </label>
+          <label className="check">
+            <input
+              type="checkbox"
+              checked={sound}
+              onChange={(e) => {
+                setSound(e.target.checked);
+                if (player) player.sound = e.target.checked;
+              }}
+            />
+            Pencil sound
           </label>
           <div className="button-row">
             <button
