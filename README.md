@@ -15,13 +15,14 @@ Intended for the Folio storybook app: a genAI-generated illustration is presente
    - tone-based **hatching**: three passes (light wash → midtones → dark cross-hatch) generate parallel strokes clipped to dark regions
    - strokes are scheduled on a 0..1 timeline the way a person draws: the **subject first** (edge-detail saliency, center-weighted), longest structural lines leading, then shading light-to-dark — subject shaded before backdrop within each pass
    - **variable drawing speed**: long confident lines move fast, short detailed or wiggly strokes get proportionally more time, and the line-work/shading split adapts to how much of each there is
-3. **Rendering** — all strokes are merged into a single three.js mesh of textured ribbons. A per-vertex timeline attribute plus one `uProgress` uniform reveals the sketch progressively in **one draw call**, with hand wobble, pressure variation, graphite grain, taper, and a procedural paper background.
+3. **Rendering** — all strokes are merged into a single three.js mesh of textured ribbons. A per-vertex timeline attribute plus one `uProgress` uniform reveals the sketch progressively in **one draw call**, with hand wobble, pressure variation, graphite grain, taper, and a procedural paper background. An animated **pencil** rides the ink front (computed on the same deterministic wobble as the geometry, so it sits exactly on the line), gliding and lifting between strokes.
 
 ## Controls
 
 - **Style**: line art only, or full pencil shading (toggle)
 - **Detail**: edge sensitivity
 - **Duration**: 3–45 s draw time, plus play/pause, redraw, and a progress scrubber
+- **Show pencil**: toggle the animated pencil cursor
 
 ## Develop
 
@@ -46,6 +47,7 @@ import { createSketchPlayer } from './api';
 const player = createSketchPlayer(containerDiv, {
   style: 'shaded',
   durationSec: 15,
+  pencil: true, // animated pencil cursor riding the ink front
   onProgress: (p) => scrubber.update(p),
   onComplete: () => showNextPage(),
 });

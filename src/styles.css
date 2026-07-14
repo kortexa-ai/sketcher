@@ -130,6 +130,16 @@ input[type='range'] {
   accent-color: #b39a62;
 }
 
+label.check {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+
+label.check input {
+  accent-color: #b39a62;
+}
+
 .error {
   color: #e08a8a;
   font-size: 13px;

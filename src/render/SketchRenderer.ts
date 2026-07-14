@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { SketchPlan } from '../types';
 import { buildStrokeGeometry } from './strokeGeometry';
+import { pencilTipAt } from './tip';
 
 const STROKE_VERTEX = /* glsl */ `
   attribute float aT;
@@ -103,9 +104,14 @@ export class SketchRenderer {
 
   private raf = 0;
   private lastTime = 0;
+  private lastFrameTs = 0;
   private playing = false;
   private progressValue = 0;
+  private pencil: THREE.Group;
+  private pencilPos: { x: number; y: number } | null = null;
   durationSec = 12;
+  /** Show the animated pencil riding the ink front. */
+  showPencil = true;
   onProgress: ((p: number) => void) | null = null;
 
   constructor(private container: HTMLElement) {
@@ -138,6 +144,9 @@ export class SketchRenderer {
     this.paperMesh.renderOrder = 0;
     this.scene.add(this.paperMesh);
 
+    this.pencil = buildPencil();
+    this.scene.add(this.pencil);
+
     this.resize();
     this.resizeObserver.observe(container);
     this.loop = this.loop.bind(this);
@@ -163,6 +172,9 @@ export class SketchRenderer {
     this.paperMesh.scale.set(plan.width + margin * 2, plan.height + margin * 2, 1);
     this.paperMesh.position.set(plan.width / 2, plan.height / 2, 0);
     this.paperMaterial.uniforms.uSize.value.set(plan.width, plan.height);
+
+    this.pencil.scale.setScalar(Math.max(plan.width, plan.height) * 0.16);
+    this.pencilPos = null; // snap to the new sketch's first stroke
 
     this.fitCamera();
     this.restart();
@@ -201,6 +213,8 @@ export class SketchRenderer {
 
   private loop(time: number): void {
     this.raf = requestAnimationFrame(this.loop);
+    const frameDt = this.lastFrameTs ? (time - this.lastFrameTs) / 1000 : 0;
+    this.lastFrameTs = time;
     if (this.playing && this.plan) {
       if (this.lastTime === 0) this.lastTime = time;
       const dt = (time - this.lastTime) / 1000;
@@ -211,8 +225,37 @@ export class SketchRenderer {
     } else {
       this.lastTime = 0;
     }
+    this.updatePencil(frameDt);
     this.strokeMaterial.uniforms.uProgress.value = this.progressValue;
     this.renderer.render(this.scene, this.camera);
+  }
+
+  /** Park the pencil sprite on the ink front, gliding + lifting between strokes. */
+  private updatePencil(dt: number): void {
+    const plan = this.plan;
+    if (!this.showPencil || !plan || this.progressValue >= 1) {
+      this.pencil.visible = false;
+      if (this.progressValue >= 1) this.pencilPos = null;
+      return;
+    }
+    const tip = pencilTipAt(plan, this.progressValue);
+    if (!tip) {
+      this.pencil.visible = false;
+      return;
+    }
+    if (!this.pencilPos) this.pencilPos = { x: tip.x, y: tip.y };
+    // Frame-rate-independent chase: quick enough to ride the ink front,
+    // soft enough that hops between strokes read as the hand travelling.
+    const k = 1 - Math.exp(-dt * 16);
+    this.pencilPos.x += (tip.x - this.pencilPos.x) * k;
+    this.pencilPos.y += (tip.y - this.pencilPos.y) * k;
+    const gap = Math.hypot(tip.x - this.pencilPos.x, tip.y - this.pencilPos.y);
+    const size = Math.max(plan.width, plan.height);
+    // Lift off the paper while travelling between strokes (screen-up = -y).
+    const lift = Math.min(1, gap / (size * 0.04));
+    this.pencil.position.set(this.pencilPos.x, this.pencilPos.y - lift * size * 0.02, 0);
+    this.pencil.rotation.z = PENCIL_ANGLE + 0.05 * Math.sin(this.progressValue * 180);
+    this.pencil.visible = true;
   }
 
   private resize(): void {
@@ -249,7 +292,49 @@ export class SketchRenderer {
     this.paperMesh.geometry.dispose();
     this.strokeMaterial.dispose();
     this.paperMaterial.dispose();
+    this.pencil.traverse((obj) => {
+      if (obj instanceof THREE.Mesh) {
+        obj.geometry.dispose();
+        (obj.material as THREE.Material).dispose();
+      }
+    });
     this.renderer.dispose();
     this.renderer.domElement.remove();
   }
+}
+
+// Rotation from +x so the pencil points up-right on screen (world y is flipped).
+const PENCIL_ANGLE = -0.96;
+
+/**
+ * A classic yellow pencil built from flat convex shapes, unit length along
+ * +x with the graphite tip at the origin. Scaled to the sketch in setPlan.
+ */
+function buildPencil(): THREE.Group {
+  const group = new THREE.Group();
+  const part = (pts: Array<[number, number]>, color: number) => {
+    const shape = new THREE.Shape();
+    shape.moveTo(pts[0][0], pts[0][1]);
+    for (let i = 1; i < pts.length; i++) shape.lineTo(pts[i][0], pts[i][1]);
+    const mesh = new THREE.Mesh(
+      new THREE.ShapeGeometry(shape),
+      new THREE.MeshBasicMaterial({
+        color,
+        depthTest: false,
+        depthWrite: false,
+        // Same y-flipped camera caveat as the stroke/paper materials.
+        side: THREE.DoubleSide,
+      }),
+    );
+    mesh.renderOrder = 2;
+    group.add(mesh);
+  };
+  part([[0, 0], [0.09, -0.022], [0.09, 0.022]], 0x2a2c30); // graphite
+  part([[0.09, -0.022], [0.2, -0.06], [0.2, 0.06], [0.09, 0.022]], 0xe3cda4); // wood
+  part([[0.2, -0.06], [0.84, -0.06], [0.84, 0.06], [0.2, 0.06]], 0xf5b83d); // body
+  part([[0.2, 0.02], [0.84, 0.02], [0.84, 0.052], [0.2, 0.052]], 0xdd9f2f); // shading
+  part([[0.84, -0.062], [0.89, -0.062], [0.89, 0.062], [0.84, 0.062]], 0xaeb6c2); // ferrule
+  part([[0.89, -0.055], [1, -0.055], [1, 0.055], [0.89, 0.055]], 0xee9aa6); // eraser
+  group.visible = false;
+  return group;
 }

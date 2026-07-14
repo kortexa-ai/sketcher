@@ -5,6 +5,7 @@ import { simplify, smoothResample, traceEdges } from '../trace';
 import { generateHatching } from '../hatch';
 import { buildSketchPlan, schedule, strokeEffort } from '../plan';
 import { buildStrokeGeometry } from '../../render/strokeGeometry';
+import { pencilTipAt } from '../../render/tip';
 
 /** White image with a centered dark square — crisp edges, dark region. */
 function squareImage(size = 64, lo = 0.1): GrayImage {
@@ -212,6 +213,43 @@ describe('buildSketchPlan', () => {
       ...plan.strokes.filter((s) => s.kind !== 'contour').map((s) => s.t0),
     );
     expect(firstHatchStart).toBeGreaterThanOrEqual(lastContourEnd - 1e-6);
+  });
+});
+
+describe('pencilTipAt', () => {
+  // Wobble amplitude is ≤ 0.85px and resample spacing 3px, so the tip must
+  // stay within ~1.5px of the scheduled stroke's endpoints and ~2.5px of its
+  // polyline anywhere else.
+  it('rides each stroke from its first to its last point', () => {
+    const plan = buildSketchPlan(squareImage(96, 0.05), { style: 'shaded' });
+    const picks = [0, Math.floor(plan.strokes.length / 2), plan.strokes.length - 1];
+    for (const idx of picks) {
+      const s = plan.strokes[idx];
+      const start = pencilTipAt(plan, s.t0 + 1e-9)!;
+      expect(start.strokeIndex).toBe(idx);
+      const p0 = s.points[0];
+      expect(Math.hypot(start.x - p0.x, start.y - p0.y)).toBeLessThan(1.5);
+      const end = pencilTipAt(plan, s.t1 - 1e-9)!;
+      const pn = s.points[s.points.length - 1];
+      expect(Math.hypot(end.x - pn.x, end.y - pn.y)).toBeLessThan(1.5);
+    }
+  });
+
+  it('stays near the stroke polyline mid-stroke', () => {
+    const plan = buildSketchPlan(squareImage(96, 0.05), { style: 'shaded' });
+    const s = plan.strokes[0];
+    const tip = pencilTipAt(plan, (s.t0 + s.t1) / 2)!;
+    const nearest = Math.min(...s.points.map((q) => Math.hypot(q.x - tip.x, q.y - tip.y)));
+    expect(nearest).toBeLessThan(2.5);
+  });
+
+  it('parks on the final point at progress 1 and is null for an empty plan', () => {
+    const plan = buildSketchPlan(squareImage(96), { style: 'lineart' });
+    const last = plan.strokes[plan.strokes.length - 1];
+    const tip = pencilTipAt(plan, 1)!;
+    const pn = last.points[last.points.length - 1];
+    expect(Math.hypot(tip.x - pn.x, tip.y - pn.y)).toBeLessThan(1.5);
+    expect(pencilTipAt({ width: 10, height: 10, strokes: [] }, 0.5)).toBeNull();
   });
 });
 

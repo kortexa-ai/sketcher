@@ -32,7 +32,7 @@ export function buildStrokeGeometry(plan: SketchPlan): THREE.BufferGeometry {
   let idx = 0;
   plan.strokes.forEach((stroke, strokeIndex) => {
     if (stroke.points.length < 2) return;
-    const rand = mulberry32(strokeIndex * 2654435761 + 1);
+    const rand = strokeRand(strokeIndex);
     const base = v;
     const pts = stroke.points;
     const n = pts.length;
@@ -45,9 +45,7 @@ export function buildStrokeGeometry(plan: SketchPlan): THREE.BufferGeometry {
     const total = cum[n - 1] || 1e-9;
 
     const baseWidth = strokeWidth(stroke);
-    const wobblePhase = rand() * Math.PI * 2;
-    const wobbleFreq = 0.05 + rand() * 0.06; // cycles per pixel of arc length
-    const wobbleAmp = 0.35 + rand() * 0.5;
+    const { phase: wobblePhase, freq: wobbleFreq, amp: wobbleAmp } = strokeWobble(rand);
     const alphaJitterPhase = rand() * Math.PI * 2;
 
     for (let i = 0; i < n; i++) {
@@ -108,6 +106,24 @@ export function buildStrokeGeometry(plan: SketchPlan): THREE.BufferGeometry {
   geo.setAttribute('aSide', new THREE.BufferAttribute(aSide, 1));
   geo.setIndex(new THREE.BufferAttribute(indices, 1));
   return geo;
+}
+
+/** Seed for stroke #i's deterministic randomness (shared with pencilTipAt). */
+export function strokeRand(strokeIndex: number): () => number {
+  return mulberry32(strokeIndex * 2654435761 + 1);
+}
+
+/**
+ * Hand-wobble parameters for one stroke, consumed from its PRNG. The pencil
+ * tip (render/tip.ts) replays these to sit exactly on the wobbled ink, so
+ * geometry and tip must draw them identically — hence one shared function.
+ */
+export function strokeWobble(rand: () => number): { phase: number; freq: number; amp: number } {
+  return {
+    phase: rand() * Math.PI * 2,
+    freq: 0.05 + rand() * 0.06, // cycles per pixel of arc length
+    amp: 0.35 + rand() * 0.5,
+  };
 }
 
 function strokeWidth(stroke: TimedStroke): number {

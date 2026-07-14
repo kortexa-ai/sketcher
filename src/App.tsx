@@ -20,6 +20,7 @@ export function App() {
   const [progress, setProgress] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [pencil, setPencil] = useState(true);
   const [hasImage, setHasImage] = useState(false);
   const [cameraOpen, setCameraOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -184,6 +185,17 @@ export function App() {
               value={duration}
               onChange={(e) => setDuration(Number(e.target.value))}
             />
+          </label>
+          <label className="check">
+            <input
+              type="checkbox"
+              checked={pencil}
+              onChange={(e) => {
+                setPencil(e.target.checked);
+                if (player) player.pencil = e.target.checked;
+              }}
+            />
+            Show pencil
           </label>
           <div className="button-row">
             <button

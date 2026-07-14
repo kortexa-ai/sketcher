@@ -17,6 +17,8 @@ export interface SketchOptions {
 }
 
 export interface SketchPlayerOptions extends SketchOptions {
+  /** Show the animated pencil riding the ink front (default true). */
+  pencil?: boolean;
   onProgress?: (progress: number) => void;
   /** Fires once each time the drawing reaches the end. */
   onComplete?: () => void;
@@ -49,6 +51,7 @@ export class SketchPlayer {
     this.onComplete = options.onComplete ?? null;
     this.renderer = new SketchRenderer(container);
     this.renderer.durationSec = options.durationSec ?? 12;
+    this.renderer.showPencil = options.pencil ?? true;
     this.renderer.onProgress = (p) => {
       this.onProgress?.(p);
       if (p >= 1) {
@@ -141,6 +144,14 @@ export class SketchPlayer {
 
   get detail(): number {
     return this.currentDetail;
+  }
+
+  get pencil(): boolean {
+    return this.renderer.showPencil;
+  }
+
+  set pencil(show: boolean) {
+    this.renderer.showPencil = show;
   }
 
   dispose(): void {
