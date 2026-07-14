@@ -79,18 +79,43 @@ export function buildSketchPlan(
         points: smoothResample(s.points, 3),
       }));
     }
-    // Keep the tonal passes (light wash → dark cross-hatch) in order, but
-    // shade the subject before the backdrop within each pass.
     const passIndex = new Map<number, number>();
     for (const s of hatches) {
       if (!passIndex.has(s.pressure)) passIndex.set(s.pressure, passIndex.size);
     }
     const sal = new Map<Stroke, number>();
     for (const s of hatches) sal.set(s, strokeSaliency(s.points, saliency));
-    hatches.sort(
-      (a, b) =>
-        passIndex.get(a.pressure)! - passIndex.get(b.pressure)! || sal.get(b)! - sal.get(a)!,
-    );
+    if (colored) {
+      // One pencil at a time: cluster fills by tint and color the drawing
+      // cluster by cluster (most salient hue first), the way a person picks
+      // up one colored pencil, uses it everywhere, then swaps. Within a
+      // cluster, keep pass order then subject-first.
+      const key = (s: Stroke) => s.color!.map((v) => Math.round(v * 3)).join(',');
+      const clusters = new Map<string, { strokes: Stroke[]; salSum: number }>();
+      for (const s of hatches) {
+        const k = key(s);
+        const c = clusters.get(k) ?? { strokes: [], salSum: 0 };
+        c.strokes.push(s);
+        c.salSum += sal.get(s)!;
+        clusters.set(k, c);
+      }
+      hatches = [...clusters.values()]
+        .sort((a, b) => b.salSum / b.strokes.length - a.salSum / a.strokes.length)
+        .flatMap((c) =>
+          c.strokes.sort(
+            (a, b) =>
+              passIndex.get(a.pressure)! - passIndex.get(b.pressure)! ||
+              sal.get(b)! - sal.get(a)!,
+          ),
+        );
+    } else {
+      // Keep the tonal passes (light wash → dark cross-hatch) in order, but
+      // shade the subject before the backdrop within each pass.
+      hatches.sort(
+        (a, b) =>
+          passIndex.get(a.pressure)! - passIndex.get(b.pressure)! || sal.get(b)! - sal.get(a)!,
+      );
+    }
   }
 
   // Split the timeline by how much work each phase actually is, so heavy

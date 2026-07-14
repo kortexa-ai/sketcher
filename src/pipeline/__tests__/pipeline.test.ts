@@ -351,10 +351,14 @@ describe('colored pencil pipeline', () => {
     expect(fills.length).toBeGreaterThan(10);
     expect(contours.every((s) => s.color === undefined)).toBe(true);
     expect(fills.every((s) => s.color !== undefined)).toBe(true);
-    // The fill tint should be recognizably yellow.
-    const [r, g, b] = fills[0].color!;
-    expect(r).toBeGreaterThan(b);
-    expect(g).toBeGreaterThan(b);
+    // The fill tint should be recognizably yellow in aggregate (a few
+    // blur-margin strokes may be near-white).
+    const mean = fills.reduce(
+      (acc, s) => [acc[0] + s.color![0], acc[1] + s.color![1], acc[2] + s.color![2]],
+      [0, 0, 0],
+    );
+    expect(mean[0]).toBeGreaterThan(mean[2] * 1.2);
+    expect(mean[1]).toBeGreaterThan(mean[2] * 1.2);
   });
 
   it('splits hatch lines at color boundaries so details keep their hue', () => {
@@ -379,6 +383,42 @@ describe('colored pencil pipeline', () => {
     const [rR, , bR] = strokeColor(runs[1], color);
     expect(rL).toBeGreaterThan(0.5);
     expect(bR).toBeGreaterThan(rR);
+  });
+
+  it('colors one hue at a time: fills of a tint are contiguous on the timeline', () => {
+    // Left half red, right half blue: the timeline should color one whole
+    // half, then the other — not alternate pencils stroke by stroke.
+    const size = 96;
+    const rgb = new Float32Array(size * size * 3);
+    for (let y = 0; y < size; y++) {
+      for (let x = 0; x < size; x++) {
+        const i = (y * size + x) * 3;
+        rgb[i] = x < 48 ? 0.85 : 0.1;
+        rgb[i + 1] = 0.15;
+        rgb[i + 2] = x < 48 ? 0.1 : 0.85;
+      }
+    }
+    const gray = new Float32Array(size * size);
+    for (let i = 0; i < gray.length; i++) {
+      gray[i] = 0.2126 * rgb[i * 3] + 0.7152 * rgb[i * 3 + 1] + 0.0722 * rgb[i * 3 + 2];
+    }
+    const plan = buildSketchPlan(
+      { width: size, height: size, data: gray },
+      { style: 'colored' },
+      { width: size, height: size, data: rgb },
+    );
+    const fills = plan.strokes
+      .filter((s) => s.kind !== 'contour' && s.color)
+      .sort((a, b) => a.t0 - b.t0);
+    expect(fills.length).toBeGreaterThan(20);
+    let transitions = 0;
+    for (let i = 1; i < fills.length; i++) {
+      const prevRed = fills[i - 1].color![0] > fills[i - 1].color![2];
+      const red = fills[i].color![0] > fills[i].color![2];
+      if (prevRed !== red) transitions++;
+    }
+    // A couple of pencil swaps at most (clusters may split near the seam).
+    expect(transitions).toBeLessThanOrEqual(4);
   });
 
   it('falls back to graphite shading when no color image is given', () => {
